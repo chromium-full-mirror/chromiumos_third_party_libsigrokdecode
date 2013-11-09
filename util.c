@@ -22,6 +22,13 @@
 #include "libsigrokdecode-internal.h"
 #include "config.h"
 
+#define STR(s) s, #s
+SRD_PRIV const struct srd_meta_info meta_info[] = {
+	{ STR(SRD_CONF_SAMPLERATE), "Samplerate", 0 },
+	{ STR(SRD_META_BITRATE), "Bitrate", 0 },
+	{ 0 }
+};
+
 /**
  * Get the value of a Python object's attribute, returned as a newly
  * allocated char *.
@@ -198,3 +205,16 @@ SRD_PRIV int py_strlist_to_char(const PyObject *py_strlist, char ***outstr)
 
 	return SRD_OK;
 }
+
+const struct srd_meta_info *srd_meta_info_get(int key)
+{
+	unsigned int i;
+
+	for (i = 0; meta_info[i].key; i++) {
+		if (meta_info[i].key == key)
+			return &meta_info[i];
+	}
+
+	return NULL;
+}
+

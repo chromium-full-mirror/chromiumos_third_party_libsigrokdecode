@@ -162,12 +162,23 @@ enum {
 	SRD_OUTPUT_ANN,
 	SRD_OUTPUT_PYTHON,
 	SRD_OUTPUT_BINARY,
+	SRD_OUTPUT_META,
 };
 
 #define SRD_MAX_NUM_PROBES 64
 
 enum {
+	/* Meta input */
 	SRD_CONF_SAMPLERATE = 10000,
+	/* Meta output */
+	SRD_META_BITRATE = 20000,
+};
+
+struct srd_meta_info {
+	int key;
+	char *keyname;
+	char *descr;
+	uint64_t flags;
 };
 
 struct srd_decoder {
@@ -261,6 +272,10 @@ struct srd_proto_data_annotation {
 	int ann_format;
 	char **ann_text;
 };
+struct srd_proto_data_meta {
+	int key;
+	GVariant *value;
+};
 
 typedef void (*srd_pd_output_callback_t)(struct srd_proto_data *pdata,
 					 void *cb_data);
@@ -350,6 +365,10 @@ SRD_API const char *srd_lib_version_string_get(void);
 
 SRD_API const char *srd_strerror(int error_code);
 SRD_API const char *srd_strerror_name(int error_code);
+
+/*--- util.c ----------------------------------------------------------------*/
+
+SRD_API const struct srd_meta_info *srd_meta_info_get(int key);
 
 #ifdef __cplusplus
 }

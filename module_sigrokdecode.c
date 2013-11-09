@@ -29,6 +29,9 @@ extern SRD_PRIV PyTypeObject srd_Decoder_type;
 /* type_logic.c */
 extern SRD_PRIV PyTypeObject srd_logic_type;
 
+/* util.c */
+extern const struct srd_meta_info meta_info[];
+
 /*
  * When initialized, a reference to this module inside the Python interpreter
  * lives here.
@@ -48,6 +51,7 @@ static struct PyModuleDef sigrokdecode_module = {
 PyMODINIT_FUNC PyInit_sigrokdecode(void)
 {
 	PyObject *mod;
+	unsigned int i;
 
 	/* tp_new needs to be assigned here for compiler portability. */
 	srd_Decoder_type.tp_new = PyType_GenericNew;
@@ -68,18 +72,22 @@ PyMODINIT_FUNC PyInit_sigrokdecode(void)
 	    (PyObject *)&srd_logic_type) == -1)
 		return NULL;
 
-	/* expose output types as symbols in the sigrokdecode module */
+	/* Expose output types as symbols in the sigrokdecode module */
 	if (PyModule_AddIntConstant(mod, "OUTPUT_ANN", SRD_OUTPUT_ANN) == -1)
 		return NULL;
-	if (PyModule_AddIntConstant(mod, "OUTPUT_PYTHON",
-	    SRD_OUTPUT_PYTHON) == -1)
+	if (PyModule_AddIntConstant(mod, "OUTPUT_PYTHON", SRD_OUTPUT_PYTHON) == -1)
 		return NULL;
-	if (PyModule_AddIntConstant(mod, "OUTPUT_BINARY",
-	    SRD_OUTPUT_BINARY) == -1)
+	if (PyModule_AddIntConstant(mod, "OUTPUT_BINARY", SRD_OUTPUT_BINARY) == -1)
 		return NULL;
-	if (PyModule_AddIntConstant(mod, "SRD_CONF_SAMPLERATE",
-			SRD_CONF_SAMPLERATE) == -1)
+	if (PyModule_AddIntConstant(mod, "OUTPUT_META", SRD_OUTPUT_META) == -1)
 		return NULL;
+
+	/* Expose meta constants as symbols in the sigrokdecode module */
+	for (i = 0; meta_info[i].key; i++) {
+		if (PyModule_AddIntConstant(mod, meta_info[i].keyname,
+				meta_info[i].key) == -1)
+			return NULL;
+	}
 
 	mod_sigrokdecode = mod;
 

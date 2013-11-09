@@ -22,11 +22,14 @@
 #include "config.h"
 #include <inttypes.h>
 
+extern struct key_string *srd_meta_key_str;
+
 /* This is only used for nicer srd_dbg() output. */
 static const char *OUTPUT_TYPES[] = {
 	"OUTPUT_ANN",
 	"OUTPUT_PYTHON",
 	"OUTPUT_BINARY",
+	"OUTPUT_META",
 };
 
 static int convert_annotation(struct srd_decoder_inst *di, PyObject *obj,
@@ -90,6 +93,80 @@ static int convert_annotation(struct srd_decoder_inst *di, PyObject *obj,
 	pdata->data = pda;
 
 	return SRD_OK;
+}
+
+static int convert_meta(struct srd_decoder_inst *di, PyObject *obj,
+		struct srd_proto_data *pdata)
+{
+	struct srd_proto_data_meta *pdm;
+	const struct srd_meta_info *mi;
+	PyObject *py_keys, *py_key, *py_value;
+	uint64_t intvalue;
+	int key, ret, i;
+
+	/* Should be a dictionary. */
+	if (!PyDict_Check(obj)) {
+		srd_err("Protocol decoder %s submitted SRD_OUTPUT_META with "
+				"%s instead of a dictionary.",
+			di->decoder->name, obj->ob_type->tp_name);
+		return SRD_ERR_PYTHON;
+	}
+
+	/* With at least one keypair in it. */
+	if (PyDict_Size(obj) == 0) {
+		srd_err("Protocol decoder %s submitted SRD_OUTPUT_META with "
+				"empty dictionary.", di->decoder->name);
+		return SRD_ERR_PYTHON;
+	}
+
+	ret = SRD_OK;
+	py_keys = PyDict_Keys(obj);
+	for (i = 0; i < PyList_Size(py_keys); i++) {
+		py_key = PyList_GetItem(py_keys, i);
+		if (PyLong_Check(py_key)) {
+			/*
+			 * The key is an integer, so it has to be a well-known
+			 * enumerated value.
+			 */
+			key = PyLong_AsLong(py_key);
+			mi = srd_meta_info_get(key);
+			if (!mi) {
+				srd_err("Protocol decoder %s submitted SRD_OUTPUT_META with "
+						"an unknown key %d.", di->decoder->name, key);
+				goto err_out;
+			}
+			switch (key) {
+			case SRD_META_BITRATE:
+				/* Value must be an integer. */
+				py_value = PyDict_GetItem(obj, py_key);
+				if (!PyLong_Check(py_value)) {
+					srd_err("Protocol decoder %s submitted well-known "
+							"key %s, but the value wasn't an integer.",
+							di->decoder->name, mi->keyname);
+					ret = SRD_ERR_PYTHON;
+					goto err_out;
+				}
+				if (!(pdm = g_try_malloc(sizeof(struct srd_proto_data_meta))))
+					return SRD_ERR_MALLOC;
+				pdm->key = key;
+				intvalue = PyLong_AsUnsignedLongLong(py_value);
+				pdm->value = g_variant_new_uint64(intvalue);
+				pdata->data = pdm;
+				break;
+			default:
+				/* This switch is out of sync with the meta_info table. */
+				srd_err("Protocol decoder %s submitted SRD_OUTPUT_META with "
+						"an unknown key %d.", di->decoder->name, key);
+					ret = SRD_ERR_BUG;
+					goto err_out;
+			}
+		}
+	}
+
+err_out:
+	Py_XDECREF(py_keys);
+
+	return ret;
 }
 
 static PyObject *Decoder_put(PyObject *self, PyObject *args)
@@ -169,6 +246,16 @@ static PyObject *Decoder_put(PyObject *self, PyObject *args)
 		break;
 	case SRD_OUTPUT_BINARY:
 		srd_err("SRD_OUTPUT_BINARY not yet supported.");
+		break;
+	case SRD_OUTPUT_META:
+		if ((cb = srd_pd_output_callback_find(di->sess, pdo->output_type))) {
+			/* Annotations need converting from PyObject. */
+			if (convert_meta(di, py_data, pdata) != SRD_OK) {
+				/* An error was already logged. */
+				break;
+			}
+			cb->cb(pdata, cb->cb_data);
+		}
 		break;
 	default:
 		srd_err("Protocol decoder %s submitted invalid output type %d.",
