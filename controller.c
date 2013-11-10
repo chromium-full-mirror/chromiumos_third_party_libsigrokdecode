@@ -1012,6 +1012,10 @@ SRD_PRIV int srd_inst_send_meta(struct srd_decoder_inst *di, int key,
 /**
  * Set a metadata configuration key in a session.
  *
+ * This sets the key in all decoder instances in the session. Instances
+ * added later will not receive these keys, so this function should be
+ * called after adding decoder instances.
+ *
  * @param sess The session to configure.
  * @param key The configuration key (SRD_CONF_*).
  * @param data The new value for the key, as a GVariant with GVariantType
