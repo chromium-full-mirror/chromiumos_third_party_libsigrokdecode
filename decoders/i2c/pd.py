@@ -92,6 +92,12 @@ class Decoder(srd.Decoder):
         ['Data write', 'Data write'],
         ['Warnings', 'Human-readable warnings'],
     ]
+    binary = (
+        'Address read',
+        'Address write',
+        'Data read',
+        'Data write',
+    )
 
     def __init__(self, **kwargs):
         self.samplerate = None
@@ -114,6 +120,7 @@ class Decoder(srd.Decoder):
     def start(self):
         self.out_proto = self.add(srd.OUTPUT_PYTHON, 'i2c')
         self.out_ann = self.add(srd.OUTPUT_ANN, 'i2c')
+        self.out_binary = self.add(srd.OUTPUT_BINARY, 'i2c')
         self.out_meta = self.add(srd.OUTPUT_META, 'i2c')
 
     def report(self):
@@ -127,6 +134,9 @@ class Decoder(srd.Decoder):
 
     def putm(self, data):
         self.put(self.startsample, self.samplenum, self.out_meta, data)
+
+    def putb(self, data):
+        self.put(self.startsample, self.samplenum, self.out_binary, data)
 
     def is_start_condition(self, scl, sda):
         # START condition (S): SDA = falling, SCL = high
@@ -181,18 +191,24 @@ class Decoder(srd.Decoder):
             if self.options['address_format'] == 'shifted':
                 d = d >> 1
 
+        bin_class = -1
         if self.state == 'FIND ADDRESS' and self.wr == 1:
             cmd = 'ADDRESS WRITE'
+            bin_class = 1
         elif self.state == 'FIND ADDRESS' and self.wr == 0:
             cmd = 'ADDRESS READ'
+            bin_class = 0
         elif self.state == 'FIND DATA' and self.wr == 1:
             cmd = 'DATA WRITE'
+            bin_class = 3
         elif self.state == 'FIND DATA' and self.wr == 0:
             cmd = 'DATA READ'
+            bin_class = 2
 
         self.putp([cmd, d])
         self.putx([proto[cmd][0], ['%s: %02X' % (proto[cmd][1], d),
                   '%s: %02X' % (proto[cmd][2], d), '%02X' % d]])
+        self.putb((bin_class, bytes([d])))
 
         # Done with this packet.
         self.startsample = -1
