@@ -112,6 +112,7 @@ class Decoder(srd.Decoder):
         self.oldsda = 1
         self.oldpins = [1, 1]
         self.pdu_start = None
+        self.pdu_bits = 0
 
     def metadata(self, key, value):
         if key == srd.SRD_CONF_SAMPLERATE:
@@ -159,6 +160,7 @@ class Decoder(srd.Decoder):
     def found_start(self, scl, sda):
         self.startsample = self.samplenum
         self.pdu_start = self.samplenum
+        self.pdu_bits = 0
         cmd = 'START REPEAT' if (self.is_repeat_start == 1) else 'START'
         self.putp([cmd, None])
         self.putx([proto[cmd][0], proto[cmd][1:]])
@@ -225,13 +227,15 @@ class Decoder(srd.Decoder):
         self.state = 'FIND DATA'
 
     def found_stop(self, scl, sda):
+        # Meta bitrate
         elapsed = 1 / float(self.samplerate) * (self.samplenum - self.pdu_start + 1)
-        bitrate = int(1 / elapsed * 20)
+        bitrate = int(1 / elapsed * self.pdu_bits)
+        self.putm({srd.SRD_META_BITRATE: bitrate})
+
         self.startsample = self.samplenum
         cmd = 'STOP'
         self.putp([cmd, None])
         self.putx([proto[cmd][0], proto[cmd][1:]])
-        self.putm({srd.SRD_META_BITRATE: bitrate})
         self.state = 'FIND START'
         self.is_repeat_start = 0
         self.wr = -1
@@ -245,6 +249,8 @@ class Decoder(srd.Decoder):
             if self.oldpins == pins:
                 continue
             self.oldpins, (scl, sda) = pins, pins
+
+            self.pdu_bits += 1
 
             # TODO: Wait until the bus is idle (SDA = SCL = 1) first?
 
