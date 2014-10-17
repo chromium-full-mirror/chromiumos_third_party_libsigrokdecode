@@ -15,6 +15,7 @@
 ##
 
 import sigrokdecode as srd
+import traceback
 
 from zlib import crc32
 
@@ -415,6 +416,12 @@ class Decoder(srd.Decoder):
                 meta=(int, 'Bitrate', 'Bitrate from Start bit to Stop bit'))
 
     def decode(self, ss, es, data):
+        try:
+            self.decode_(ss, es, data)
+        except IndexError:
+            print(traceback.format_exc())
+
+    def decode_(self, ss, es, data):
         self.bits = data['BITS']
         self.edges = data['EDGES']
         self.data = []
