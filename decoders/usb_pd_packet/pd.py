@@ -185,6 +185,7 @@ class Decoder(srd.Decoder):
         ('src', 'Source Message'),
         ('snk', 'Sink Message'),
         ('payload', 'Payload'),
+        ('text', 'Plain text'),
     )
     annotation_rows = (
        ('4B5B', 'symbols', (7,)),
@@ -192,6 +193,7 @@ class Decoder(srd.Decoder):
        ('payload', 'Payload', (11,)),
        ('type', 'Type', (0,9,10,)),
        ('warnings', 'Warnings', (8,)),
+       ('text', 'Full text', (12,)),
     )
 
     def get_request(self, rdo):
@@ -296,6 +298,7 @@ class Decoder(srd.Decoder):
         elif t == 3:
             txt = self.get_bist(idx, self.data[idx])
         self.putx(s0, s1, [11, [txt, txt]])
+        self.text += " - " + txt
 
     def puthead(self, with_payload = False):
         ann_type = 9 if self.head_power_role() else 10
@@ -310,6 +313,7 @@ class Decoder(srd.Decoder):
 
         longm = "{:s}[{:d}]:{:s}".format(role, self.head_id(), shortm)
         self.putx(0, -1, [ann_type, [longm, shortm]])
+        self.text += longm
 
     def head_id(self):
         return (self.head >> 9) & 7
@@ -384,11 +388,13 @@ class Decoder(srd.Decoder):
                 if len(hreset) == 0:
                     # annote the HardReset
                     self.putx(i, i+20, [2, ['HardReset', 'HRST']])
+                    self.text += "HRST"
                     return HARD_RESET
                 # 3 valid SYNC-x codes : SOP*
                 self.putx(i, i+20, [2, ['SOP*', 'SOP']])
                 return i+20
         self.putx(0, len(self.bits), [1, ['Junk???', 'XXX']])
+        self.text += "Junk???"
         self.putwarn("No start of packet found","XXX")
         return NO_EOP
 
@@ -417,8 +423,16 @@ class Decoder(srd.Decoder):
         if len(self.edges) < 50:
             return # Not a real PD packet
 
+        # TODO:Samplerate metadata not passed to stacked decoder : HARDCODING
+        self.samplerate = 2400000
+        t0_time = self.edges[0]/self.samplerate
+        dt_us = (self.edges[-1] - self.edges[0])/(self.samplerate/1000000.0)
+        self.text = "%5.6f (%4d): " % (t0_time, dt_us)
+
         self.idx = self.scan_eop()
         if self.idx < 0:
+            # Full text trace of the issue
+            self.putx(0, self.idx, [12, [self.text, 'TXT']])
             return # No real packet : ABORT
 
         # Packet header
@@ -445,3 +459,6 @@ class Decoder(srd.Decoder):
             self.putx(self.idx-5, self.idx, [6, ['EOP', 'E']])
         else:
             self.putwarn("No EOP","EOP!")
+
+        # Full text trace
+        self.putx(0, self.idx, [12, [self.text, 'TXT']])
