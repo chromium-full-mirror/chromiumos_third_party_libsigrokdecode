@@ -64,6 +64,7 @@ class Decoder(srd.Decoder):
         self.edges = []
         self.half_one = False
         self.start_one = 0
+        self.tstamp = 0
 
     def metadata(self, key, value):
         if key == srd.SRD_CONF_SAMPLERATE:
@@ -118,7 +119,7 @@ class Decoder(srd.Decoder):
                 self.edges.append(self.previous)
                 # Export the packet
                 self.putx([0, ['BMC %d' % (self.seq),'PD']])
-                self.putp({'BITS': self.packet, 'EDGES':self.edges})
+                self.putp({'TIMESTAMP':tstamp, 'BITS': self.packet, 'EDGES':self.edges})
                 #self.putb((1, bytes(self.packet))
                 # Reset for next packet
                 self.startsample = self.samplenum
@@ -149,4 +150,3 @@ class Decoder(srd.Decoder):
                     self.edges.append(self.previous)
                     self.half_one = False
             self.previous = self.samplenum
-

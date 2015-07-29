@@ -95,6 +95,17 @@ EOP=0x16
 SYNC_CODES=[SYNC1, SYNC2, SYNC3]
 HRST_CODES=[RST1, RST1, RST1, RST2]
 
+# different SOPs: SOP, SOP', SOP", SOP'_Debug, SOP"_Debug
+SOP        =  [SYNC1, SYNC1, SYNC1, SYNC2, "SOP" ]
+SOPP       =  [SYNC1, SYNC1, SYNC3, SYNC3, "SOP'"]
+SOPPP      =  [SYNC1, SYNC3, SYNC1, SYNC3, 'SOP"']
+SOPPDebug  =  [SYNC1,  RST2,  RST2, SYNC3, "SOP'_Debug"]
+SOPPPDebug =  [SYNC1,  RST2, SYNC3, SYNC2, 'SOP"_Debug']
+START_OF_PACKETS = [SOP, SOPP, SOPPP, SOPPDebug, SOPPPDebug]
+
+CableReset =  [ RST1, SYNC1,  RST1, SYNC3, "Cable Reset"]
+HardReset  =  [ RST1,  RST1,  RST1,  RST2, "Hard Reset" ]
+
 SYM_NAME = [
     ['0x0', '0'],
     ['0x1', '1'],
@@ -366,18 +377,40 @@ class Decoder(srd.Decoder):
         hi = self.get_short()
         return lo | (hi << 16)
 
+    def is_hard_reset(self, sym_array):
+        first = 1 if sym_array[0]==HardReset[0] else 0
+        second = 1 if sym_array[1]==HardReset[1] else 0
+        third = 1 if sym_array[2]==HardReset[2] else 0
+        fourth = 1 if sym_array[3]==HardReset[3] else 0
+        return first + second + third + fourth >= 3
+
+    def is_cable_reset(self, sym_array):
+        first = 1 if sym_array[0]==CableReset[0] else 0
+        second = 1 if sym_array[1]==CableReset[1] else 0
+        third = 1 if sym_array[2]==CableReset[2] else 0
+        fourth = 1 if sym_array[3]==CableReset[3] else 0
+        return first + second + third + fourth >= 3
+
+    def get_start_of_packet(self, sym_array):
+        for i in range(5):
+            first = 1 if sym_array[0]==START_OF_PACKETS[i][0] else 0
+            second = 1 if sym_array[1]==START_OF_PACKETS[i][1] else 0
+            third = 1 if sym_array[2]==START_OF_PACKETS[i][2] else 0
+            fourth = 1 if sym_array[3]==START_OF_PACKETS[i][3] else 0
+            if first + second + third + fourth >= 3:
+                return START_OF_PACKETS[i][4]
+            else:
+                return None
+
     def scan_eop(self):
         for i in range(len(self.bits) - 19):
-            k = [self.get_sym(i, rec=False), self.get_sym(i+5, rec=False), self.get_sym(i+10, rec=False), self.get_sym(i+15, rec=False)]
-            syncs = 0
-            hreset = HRST_CODES[:]
-            for sym in k:
-                if sym in SYNC_CODES:
-                    syncs += 1
-                if sym == hreset[0]:
-                    del hreset[0]
+            k = [self.get_sym(i, rec=False), self.get_sym(i+5, rec=False),
+                 self.get_sym(i+10, rec=False), self.get_sym(i+15, rec=False)]
+            hard_reset = self.is_hard_reset(k)
+            cable_reset = self.is_cable_reset(k)
+            start_of_packet = self.get_start_of_packet(k)
             # We have an interesting symbol sequence
-            if len(hreset) == 0 or syncs >= 4: #TODO 3 symbols
+            if hard_reset or cable_reset or start_of_packet!=None:
                 # annotate the preamble
                 self.putx(0, i, [1, ['Preamble', '...']])
                 # annotate each symbol
@@ -385,14 +418,13 @@ class Decoder(srd.Decoder):
                 self.rec_sym(i+5, k[1])
                 self.rec_sym(i+10, k[2])
                 self.rec_sym(i+15, k[3])
-                # we have the 4 HardReset symbols
-                if len(hreset) == 0:
-                    # annote the HardReset
-                    self.putx(i, i+20, [2, ['HardReset', 'HRST']])
+                if hard_reset:
                     self.text += "HRST"
                     return HARD_RESET
-                # 3 valid SYNC-x codes : SOP*
-                self.putx(i, i+20, [2, ['SOP*', 'SOP']])
+                elif cable_reset:
+                    self.putx(i, i+20, [2, [CableReset[4], 'CRST']])
+                else:
+                    self.putx(i, i+20, [2, [start_of_packet, 'S']])
                 return i+20
         self.putx(0, len(self.bits), [1, ['Junk???', 'XXX']])
         self.text += "Junk???"
@@ -402,6 +434,7 @@ class Decoder(srd.Decoder):
     def __init__(self, **kwargs):
         self.samplerate = None
         self.idx = 0
+        self.packet_seq = 0
 
     def metadata(self, key, value):
         if key == srd.SRD_CONF_SAMPLERATE:
@@ -422,19 +455,18 @@ class Decoder(srd.Decoder):
             print(traceback.format_exc())
 
     def decode_(self, ss, es, data):
+        self.tstamp = data['TIMESTAMP']
         self.bits = data['BITS']
         self.edges = data['EDGES']
         self.data = []
         self.idx = 0
+        self.samplenum = 0
 
         if len(self.edges) < 50:
             return # Not a real PD packet
 
-        # TODO:Samplerate metadata not passed to stacked decoder : HARDCODING
-        self.samplerate = 2400000
-        t0_time = self.edges[0]/self.samplerate
-        dt_us = (self.edges[-1] - self.edges[0])/(self.samplerate/1000000.0)
-        self.text = "%5.6f (%4d): " % (t0_time, dt_us)
+        self.packet_seq += 1
+        self.text = "#%d (%8.6fms): " % (self.packet_seq, self.tstamp*1000)
 
         self.idx = self.scan_eop()
         if self.idx < 0:
@@ -466,6 +498,5 @@ class Decoder(srd.Decoder):
             self.putx(self.idx-5, self.idx, [6, ['EOP', 'E']])
         else:
             self.putwarn("No EOP","EOP!")
-
         # Full text trace
         self.putx(0, self.idx, [12, [self.text, 'TXT']])
